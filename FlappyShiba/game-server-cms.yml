@@ -1,0 +1,107 @@
+variables:
+    REPOSITORY_URL: "https://lamtruong:$TOKEN@git.myg.vn/telegam/cms-flappyshiba.git"
+    STAGE: "/home/flappy/dev-cms.flappy"
+    PRODUCT: "/home/flappy/live-cms.flappy"
+    
+    IMG: "/home/backup_img"
+
+    PM2_NAME: "cms-game-flappy-shiba:5006"
+    CLONE_TMP: "/home/gitlab-runner/cms-flappyshiba"
+
+stages:
+    - build_STAGE
+    - build_PRODUCT
+    - deploy_STAGE
+    - deploy_PRODUCT
+    - checklog_STAGE
+    - checklog_PRODUCT
+
+build_STAGE:
+    stage: build_STAGE
+    variables:
+        GIT_STRATEGY: none
+    before_script:
+        - if [ ! -d "$IMG" ]; then mkdir -p "$IMG"; fi
+        - if [ ! -d "$STAGE" ]; then mkdir -p "$STAGE"; fi
+        - cd $STAGE
+        - if pm2 describe $PM2_NAME > /dev/null 2>&1; then pm2 stop $PM2_NAME; fi
+        - if [ -d "$STAGE/public/img" ]; then mv public/img $IMG; fi
+        - if [ -d "$STAGE" ]; then find "$STAGE" -mindepth 1 -path "$STAGE/node_modules" -prune -o -name ".env" -prune -o -exec rm -rf {} +; fi
+        - if [ -d "$CLONE_TMP" ]; then rm -rf "$CLONE_TMP"; fi
+        - if [ -d $STAGE/node_modules ]; then cd /home/gitlab-runner/ && git clone --branch stage $REPOSITORY_URL && cd $CLONE_TMP && mv * $STAGE && rm -rf $CLONE_TMP; else git clone --branch stage $REPOSITORY_URL $STAGE; fi
+        - if [ -d $IMG/img ]; then mv $IMG/img $STAGE/public; fi
+    script:
+        - cd $STAGE
+        - npm install
+    tags:
+        - flappy
+    only:
+        - stage
+
+build_PRODUCT:
+    stage: build_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - if [ ! -d "$IMG" ]; then sudo mkdir -p "$IMG"; fi
+        - if [ ! -d "$PRODUCT" ]; then sudo mkdir -p "$PRODUCT"; fi
+        - cd $PRODUCT
+        - if pm2 describe $PM2_NAME > /dev/null 2>&1; then pm2 stop $PM2_NAME; fi
+        - if [ -d "$PRODUCT/public/img" ]; then mv public/img $IMG; fi
+        - if [ -d "$PRODUCT" ]; then find "$PRODUCT" -mindepth 1 -path "$PRODUCT/node_modules" -prune -o -name ".env" -prune -o -exec rm -rf {} +; fi
+        - if [ -d "$CLONE_TMP" ]; then rm -rf "$CLONE_TMP"; fi
+        - if [ -d $PRODUCT/node_modules ]; then cd /home/gitlab-runner/ && git clone --branch product $REPOSITORY_URL && cd $CLONE_TMP && mv * $PRODUCT && rm -rf $CLONE_TMP; else git clone --branch product $REPOSITORY_URL $PRODUCT; fi
+        - if [ -d $IMG/img ]; then mv $IMG/img $PRODUCT/public; fi
+        - cd $PRODUCT
+        - npm install
+        - sudo chown -R flappy. $PRODUCT
+    tags:
+        - flappy-live
+    only:
+        - product
+
+deploy_STAGE:
+    stage: deploy_STAGE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - cd $STAGE
+        - pm2 restart start.config.js
+    tags:
+        - flappy
+    only:
+        - stage
+
+deploy_PRODUCT:
+    stage: deploy_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - su flappy -c "cd $PRODUCT; pm2 restart start.config.js"
+    tags:
+        - flappy-live
+    only:
+        - product
+
+checklog_STAGE:
+    stage: checklog_STAGE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - cd $STAGE
+        - timeout 5 pm2 logs $PM2_NAME || true
+    tags:
+        - flappy
+    only:
+        - stage
+
+checklog_PRODUCT:
+    stage: checklog_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - su flappy -c "cd $PRODUCT; timeout 5 pm2 logs $PM2_NAME || true"
+    tags:
+        - flappy-live
+    only:
+        - product
