@@ -1,0 +1,345 @@
+variables:
+    API_REPOSITORY_HOTUPDATE_FULL: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fhotupdate_full.zip/raw?ref=dev-2.4"
+    API_REPOSITORY_HOTUPDATE_MINI: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fhotupdate_mini.zip/raw?ref=dev-2.4"
+    API_REPOSITORY_WEB_DESKTOP_DEV: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fweb-desktop-dev.zip/raw?ref=$CI_COMMIT_REF_NAME"
+    API_REPOSITORY_WEB_DESKTOP_DEV2: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fweb-desktop-dev2.zip/raw?ref=$CI_COMMIT_REF_NAME"
+    API_REPOSITORY_WEB_DESKTOP: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fweb-desktop.zip/raw?ref=dev-2.4"
+    API_REPOSITORY_WEB_MOBILE: "https://git.myg.vn/api/v4/projects/23/repository/files/deploy%2Fweb-mobile.zip/raw?ref=dev-2.4"
+
+    HOTUPDATE_FULL: "/root/hotupdate-wewin/public/full"
+    HOTUPDATE_MINI: "/root/hotupdate-wewin/public/mini"
+    HOTUPDATE_FULL_BACKUP: 'C:\inetpub\wwwroot\danhbaityche.com\public\hotupdate-wewin\full\'
+    HOTUPDATE_MINI_BACKUP: 'C:\inetpub\wwwroot\danhbaityche.com\public\hotupdate-wewin\mini\'
+    WEB_DESKTOP_DEV: 'C:\inetpub\wwwroot\weme.tw\dev\web\'
+    WEB_DESKTOP_DEV2: 'C:\inetpub\wwwroot\weme.tw\dev\web2\'
+    WEB_DESKTOP: 'C:\inetpub\wwwroot\weme.tw\webnew\'
+    WEB_MOBILE: 'C:\inetpub\wwwroot\weme.tw\play\'
+
+    CLONE: 'C:\GitLab-Runner\clone\'
+
+stages:
+    - build&deploy_HOTUPDATE_FULL
+    - build&deploy_HOTUPDATE_MINI
+    - build&deploy_HOTUPDATE_FULL_BACKUP
+    - build&deploy_HOTUPDATE_MINI_BACKUP
+    - build&deploy_WEB_DESKTOP_DEV
+    - build&deploy_WEB_DESKTOP_DEV2
+    - build&deploy_WEB_DESKTOP
+    - build&deploy_WEB_MOBILE
+
+build&deploy_HOTUPDATE_FULL:
+    stage: build&deploy_HOTUPDATE_FULL
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_HOTUPDATE_FULL)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Error: File hotupdate_full.zip does not exist on server (HTTP $STATUS_CODE)."
+                exit 0
+            fi
+
+            if [ ! -d "$HOTUPDATE_FULL" ]; then mkdir -p "$HOTUPDATE_FULL"; fi
+            cd $HOTUPDATE_FULL && rm -rf *
+            curl --output hotupdate_full.zip --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_HOTUPDATE_FULL
+            unzip hotupdate_*.zip && rm hotupdate_*.zip
+    tags:
+        - wewin_m.client
+    only:
+        refs:
+            - dev-2.4
+        changes:
+            - deploy/hotupdate_full.zip
+    allow_failure: true
+    
+build&deploy_HOTUPDATE_MINI:
+    stage: build&deploy_HOTUPDATE_MINI
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_HOTUPDATE_MINI)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Error: File hotupdate_mini.zip does not exist on server (HTTP $STATUS_CODE)."
+                exit 0
+            fi
+
+            if [ ! -d "$HOTUPDATE_MINI" ]; then mkdir -p "$HOTUPDATE_MINI"; fi
+            cd $HOTUPDATE_MINI && rm -rf *
+            curl --output hotupdate_mini.zip --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_HOTUPDATE_MINI
+            unzip hotupdate_*.zip && rm hotupdate_*.zip
+    tags:
+        - wewin_m.client
+    only:
+        refs:
+            - dev-2.4
+        changes:
+           - deploy/hotupdate_mini.zip
+    allow_failure: true
+
+build&deploy_HOTUPDATE_FULL_BACKUP:
+    stage: build&deploy_HOTUPDATE_FULL_BACKUP
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_HOTUPDATE_FULL -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File hotupdate_full.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File hotupdate_full.zip tồn tại. Tiến hành tải về và giải nén."
+
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ            
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force
+            cd $CLONE             
+            Invoke-WebRequest -Uri $API_REPOSITORY_HOTUPDATE_FULL -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'hotupdate_full.zip'
+            Expand-Archive -Path "hotupdate_full.zip" -DestinationPath "." -Force
+            Remove-Item -Path "hotupdate_full.zip" -Force            
+
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS            
+            if (!(Test-Path $HOTUPDATE_FULL_BACKUP)) { mkdir $HOTUPDATE_FULL_BACKUP }
+            Get-ChildItem -Path $HOTUPDATE_FULL_BACKUP -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $HOTUPDATE_FULL_BACKUP
+    tags:
+        - wewin-web-windows
+    only:
+        refs:
+            - dev-2.4
+        changes:
+            - deploy/hotupdate_full.zip
+    allow_failure: true
+
+build&deploy_HOTUPDATE_MINI_BACKUP:
+    stage: build&deploy_HOTUPDATE_MINI_BACKUP
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_HOTUPDATE_MINI -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File hotupdate_mini.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File hotupdate_mini.zip tồn tại. Tiến hành tải về và giải nén."
+            
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ            
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force
+            cd $CLONE
+            Invoke-WebRequest -Uri $API_REPOSITORY_HOTUPDATE_MINI -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'hotupdate_mini.zip'
+            Expand-Archive -Path "hotupdate_mini.zip" -DestinationPath "." -Force
+            Remove-Item -Path "hotupdate_mini.zip" -Force
+
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS
+            if (!(Test-Path $HOTUPDATE_MINI_BACKUP)) { mkdir $HOTUPDATE_MINI_BACKUP }
+            Get-ChildItem -Path $HOTUPDATE_MINI_BACKUP -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $HOTUPDATE_MINI_BACKUP
+    tags:
+        - wewin-web-windows
+    only:
+        refs:
+            - dev-2.4
+        changes:
+           - deploy/hotupdate_mini.zip
+    allow_failure: true
+
+build&deploy_WEB_DESKTOP_DEV:
+    stage: build&deploy_WEB_DESKTOP_DEV
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP_DEV -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File web-desktop-dev.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File web-desktop-dev.zip tồn tại. Tiến hành tải về và giải nén."        
+
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ            
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force
+            cd $CLONE
+            Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP_DEV -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'web-desktop-dev.zip'
+            Expand-Archive -Path "web-desktop-dev.zip" -DestinationPath "." -Force
+            Remove-Item -Path "web-desktop-dev.zip" -Force
+            
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS
+            if (!(Test-Path $WEB_DESKTOP_DEV)) { mkdir $WEB_DESKTOP_DEV }
+            Get-ChildItem -Path $WEB_DESKTOP_DEV -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $WEB_DESKTOP_DEV
+    tags:
+        - wewin-web-windows
+    only:
+        changes:
+            - deploy/web-desktop-dev.zip
+    allow_failure: true
+
+build&deploy_WEB_DESKTOP_DEV2:
+    stage: build&deploy_WEB_DESKTOP_DEV2
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP_DEV2 -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File web-desktop-dev2.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File web-desktop-dev2.zip tồn tại. Tiến hành tải về và giải nén."        
+            
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ            
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force             
+            cd $CLONE
+            Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP_DEV2 -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'web-desktop-dev2.zip'
+            Expand-Archive -Path "web-desktop-dev2.zip" -DestinationPath "." -Force
+            Remove-Item -Path "web-desktop-dev2.zip" -Force
+
+
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS            
+            if (!(Test-Path $WEB_DESKTOP_DEV2)) { mkdir $WEB_DESKTOP_DEV2 }
+            Get-ChildItem -Path $WEB_DESKTOP_DEV2 -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $WEB_DESKTOP_DEV2 -Force
+    tags:
+        - wewin-web-windows
+    only:
+        changes:
+            - deploy/web-desktop-dev2.zip
+    allow_failure: true
+
+build&deploy_WEB_DESKTOP:
+    stage: build&deploy_WEB_DESKTOP
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File web-desktop.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File web-desktop.zip tồn tại. Tiến hành tải về và giải nén."
+
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ            
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            cd $CLONE
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force
+            Invoke-WebRequest -Uri $API_REPOSITORY_WEB_DESKTOP -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'web-desktop.zip'
+            Expand-Archive -Path "web-desktop.zip" -DestinationPath "." -Force
+            Remove-Item -Path "web-desktop.zip" -Force
+
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS
+            if (!(Test-Path $WEB_DESKTOP)) { mkdir $WEB_DESKTOP }
+            Get-ChildItem -Path $WEB_DESKTOP -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $WEB_DESKTOP -Force
+    tags:
+        - wewin-web-windows
+    only:
+        refs:
+            - dev-2.4
+        changes:
+            - deploy/web-desktop.zip
+    allow_failure: true
+
+build&deploy_WEB_MOBILE:
+    stage: build&deploy_WEB_MOBILE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            try {
+                $response = Invoke-WebRequest -Uri $API_REPOSITORY_WEB_MOBILE -Headers @{ 'Private-Token' = $TOKEN } -Method Head -ErrorAction Stop
+            } catch {
+                Write-Host "File web-mobile.zip không tồn tại hoặc không truy cập được. Dừng triển khai."
+                exit 0
+            }
+
+            Write-Host "File web-mobile.zip tồn tại. Tiến hành tải về và giải nén."
+            
+            # Xử lý giải nén trước, phòng trường hợp tải về lỗi không có file zip thì fail job nhưng hệ thống vẫn chạy bản cũ
+            if (!(Test-Path $CLONE)) { mkdir $CLONE }
+            Get-ChildItem -Path $CLONE -Recurse -Force | Remove-Item -Recurse -Force
+            cd $CLONE
+            Invoke-WebRequest -Uri $API_REPOSITORY_WEB_MOBILE -Headers @{ 'Private-Token' = $TOKEN } -OutFile 'web-mobile.zip'
+            Expand-Archive -Path "web-mobile.zip" -DestinationPath "." -Force
+            Remove-Item -Path "web-mobile.zip" -Force
+
+            # Xóa từng file và thư mục con một cách từ từ do đang sử dụng IIS
+            if (!(Test-Path $WEB_MOBILE)) { mkdir $WEB_MOBILE }
+            Get-ChildItem -Path $WEB_MOBILE -Recurse -Force | ForEach-Object {
+                try {
+                    Remove-Item -Path $_.FullName -Recurse -Force
+                    Start-Sleep -Milliseconds 200  # Thêm khoảng nghỉ ngắn giữa các lần xóa
+                } catch {
+                    Write-Host "Skipping locked or in-use file: $($_.FullName)"
+                }
+            }
+
+            # Di chuyển file giải nén vào folder triển khai
+            Get-ChildItem -Path $CLONE -Recurse | Move-Item -Destination $WEB_MOBILE -Force
+    tags:
+        - wewin-web-windows
+    only:
+        refs:
+            - dev-2.4
+        changes:
+            - deploy/web-mobile.zip
+    allow_failure: true
