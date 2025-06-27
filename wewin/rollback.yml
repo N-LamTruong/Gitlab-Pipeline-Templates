@@ -1,0 +1,121 @@
+variables:
+    FEATURE_API_URL_target: "https://git.myg.vn/api/v4/projects/46/repository/archive?path=target&sha=$CI_COMMIT_REF_NAME"
+
+    STAGE_API_URL_hibernate: "https://git.myg.vn/api/v4/projects/46/repository/files/hibernate.cfg.xml/raw?ref=stage"
+    FEATURE_API_URL_hibernate: "https://git.myg.vn/api/v4/projects/46/repository/files/hibernate.cfg.xml/raw?ref=$CI_COMMIT_REF_NAME"
+    
+    STAGE_API_URL_config: "https://git.myg.vn/api/v4/projects/46/repository/files/config.xml/raw?ref=stage"
+    FEATURE_API_URL_config: "https://git.myg.vn/api/v4/projects/46/repository/files/config.xml/raw?ref=$CI_COMMIT_REF_NAME"
+    
+    STAGE_API_URL_KeywordChatBlock: "https://git.myg.vn/api/v4/projects/46/repository/files/src%2Fmain%2Fresources%2FKeywordChatBlock.txt/raw?ref=stage"
+    FEATURE_API_URL_KeywordChatBlock: "https://git.myg.vn/api/v4/projects/46/repository/files/src%2Fmain%2Fresources%2FKeywordChatBlock.txt/raw?ref=$CI_COMMIT_REF_NAME"
+
+    BASE: "/home/gitlab-runner"
+    STAGE: "/home/gitlab-runner/game-server"
+    CLONE: "/home/gitlab-runner/clone"
+
+    BACKUP: "/home/gitlab-runner/backups"
+    COMMIT: "$CI_COMMIT_SHA"
+
+    JedisCache: "$STAGE/target/classes/com/bem/jedis/JedisCache*"
+    OviStore: "$STAGE/target/classes/com/bem/ovi/OviStore*"
+    ApiServer: "$STAGE/target/classes/com/bem/util/ApiServer*"
+    Xerver: "$STAGE/target/classes/com/k2tek/Xerver*"
+    WebSocketSslServer: "$STAGE/target/classes/com/k2tek/net/websocket/WebSocketSslServer.class"
+    WebSocketSslServerPipelineFactory: "$STAGE/target/classes/com/k2tek/net/websocket/WebSocketSslServerPipelineFactory*"
+
+stages:
+    - build&deploy_FEATURE
+    - rollback_DEV
+
+build&deploy_FEATURE:
+    stage: build&deploy_FEATURE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_target)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Folder 'target' không tồn tại trên GitLab. Dừng triển khai."
+                exit 0
+            fi
+
+            if [ ! -d "$CLONE" ]; then mkdir -p "$CLONE"; fi
+            cd $CLONE && rm -rf *
+            curl --output build.tar.xz --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_target
+            tar -xf build.tar.xz -C .
+
+
+            # Kiểm tra file hibernate.cfg.xml tồn tại trên nhánh
+            STATUS_CODE_2=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_hibernate)
+            if [ "$STATUS_CODE_2" -ne 200 ]; then
+                echo "⚠️  hibernate.cfg.xml không tồn tại trên nhánh $CI_COMMIT_REF_NAME. Bỏ qua bước tải về."
+            else
+                echo "✅ File hibernate.cfg.xml tồn tại. Tiến hành kiểm tra sự thay đổi."
+                echo "🔄 Xác định commit trước đó trên nhánh $CI_COMMIT_REF_NAME..."
+                
+                # Kiểm tra nếu đây là commit đầu tiên (không có commit trước đó)
+                if [ "$CI_COMMIT_BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+                    echo "🆕 Đây là commit đầu tiên trên nhánh, tự động tải file hibernate.cfg.xml"
+                    curl --output hibernate.cfg.xml --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_hibernate
+                else
+                    
+                    # Lấy commit trước đó một cách chính xác trên cùng 1 nhánh từ GitLab API
+                    PREV_COMMIT=$(curl -s --header "PRIVATE-TOKEN: $TOKEN" "https://git.myg.vn/api/v4/projects/46/repository/commits?ref_name=$CI_COMMIT_REF_NAME&per_page=2" | jq -r '.[1].id')
+                    echo "📌 Commit trước đó trên nhánh $CI_COMMIT_REF_NAME: $PREV_COMMIT"
+                    
+                    # Lấy danh sách file thay đổi giữa commit trước và commit hiện tại
+                    FILE_CHANGED=$(curl -s --header "PRIVATE-TOKEN: $TOKEN" "https://git.myg.vn/api/v4/projects/46/repository/compare?from=$PREV_COMMIT&to=$CI_COMMIT_SHA" | jq -r '.diffs[]?.new_path' | grep "hibernate.cfg.xml" || true)
+
+                    # Kiểm tra xem file có thay đổi không
+                    if [ -z "$FILE_CHANGED" ]; then
+                        echo "⏩ Nội dung file hibernate.cfg.xml không thay đổi. Bỏ qua tải về."
+                    else
+                        echo "🚀 Nội dung file hibernate.cfg.xml đã thay đổi. Tiến hành tải về."
+                        curl --output hibernate.cfg.xml --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_hibernate
+                    fi
+                fi
+            fi
+
+
+
+            curl --output hibernate.cfg.xml --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_hibernate
+            curl --output config.xml --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_config
+            curl --output KeywordChatBlock.txt --header "PRIVATE-TOKEN: $TOKEN" $FEATURE_API_URL_KeywordChatBlock
+            
+            rm gameserver-*/target/classes/com/bem/jedis/JedisCache*
+            rm gameserver-*/target/classes/com/bem/ovi/OviStore*
+            rm gameserver-*/target/classes/com/bem/util/ApiServer*
+            rm gameserver-*/target/classes/com/k2tek/Xerver*
+            rm gameserver-*/target/classes/com/k2tek/net/websocket/WebSocketSslServer.class
+            rm gameserver-*/target/classes/com/k2tek/net/websocket/WebSocketSslServerPipelineFactory*
+            cp $JedisCache gameserver-*/target/classes/com/bem/jedis/
+            cp $OviStore gameserver-*/target/classes/com/bem/ovi/
+            cp $ApiServer gameserver-*/target/classes/com/bem/util/
+            cp $Xerver gameserver-*/target/classes/com/k2tek/
+            cp $WebSocketSslServer gameserver-*/target/classes/com/k2tek/net/websocket/
+            cp $WebSocketSslServerPipelineFactory gameserver-*/target/classes/com/k2tek/net/websocket/
+            
+            cd $STAGE
+            bash stop-gitlab.sh
+            rm -rf target config.xml src/main/resources/KeywordChatBlock.txt
+            mv $CLONE/gameserver-*/target $CLONE/config.xml $STAGE
+            if [ ! -d "$CLONE/hibernate.cfg.xml" ]; then rm hibernate.cfg.xml && mv $CLONE/hibernate.cfg.xml $STAGE; fi
+            rm -rf $CLONE/gameserver-*
+            mv $CLONE/KeywordChatBlock.txt $STAGE/src/main/resources
+            bash run-gitlab.sh
+            chown -R develop:develop $STAGE
+
+            cd $BASE
+            if [ ! -d "$BACKUP" ]; then mkdir -p "$BACKUP"; fi
+            zip -rq game-server-$COMMIT.zip game-server -x "game-server/logs/*" "game-server/logs" "game-server/image/*" "game-server/image"
+            mv game-server-$COMMIT.zip $BACKUP
+            ls -1t $BACKUP | tail -n +3 | xargs -I {} rm -f "$BACKUP/{}"
+
+            # Liệt kê các backup theo commit hash
+            #echo "Các bản backup khả dụng (theo commit hash):"
+            #ls -1t $BACKUP
+    tags:
+        - wewin-server-dev
+    only:
+        - feature/truong
