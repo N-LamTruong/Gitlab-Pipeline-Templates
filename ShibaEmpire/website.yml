@@ -1,0 +1,30 @@
+variables:
+    REPOSITORY_URL: "https://lamtruong:$TOKEN@git.myg.vn/lamtruong/website-shiba.git"
+    SOURCE_MAIN_STAGE: "/home/shiba/dev-game,website.shibaempire.co/public/dev.shibaempire.co"
+    SOURCE_MAIN_PRODUCT: "/home/ec2-user/data/live.shibaempire.co"
+
+stages:
+    - build_deploy_STAGE
+    - build_deploy_PRODUCT
+
+build_deploy_STAGE:
+    stage: build_deploy_STAGE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - if [ ! -d "$SOURCE_MAIN_STAGE" ]; then git clone --branch stage $REPOSITORY_URL $SOURCE_MAIN_STAGE; else cd $SOURCE_MAIN_STAGE && git pull $REPOSITORY_URL stage; fi
+    tags:
+        - dev-shiba
+    only:
+        - stage
+
+build_deploy_PRODUCT:
+    stage: build_deploy_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - if [ ! -d "$SOURCE_MAIN_PRODUCT" ]; then git clone --branch product $REPOSITORY_URL $SOURCE_MAIN_PRODUCT; else cd $SOURCE_MAIN_PRODUCT && git pull $REPOSITORY_URL product; fi
+    tags:
+        - shiba-live
+    only:
+        - product
