@@ -1,0 +1,30 @@
+variables:
+    REPOSITORY_URL: "https://lamtruong:$TOKEN@git.myg.vn/lamtruong/shiba-webhook.git"
+
+    PRODUCT: "/home/flappy/live-webhook.flappy"
+    
+    PM2_NAME: "live-webhook"
+    CLONE_TMP: "/home/gitlab-runner/shiba-webhook"
+
+stages:
+    - build&deploy_PRODUCT
+
+build&deploy_PRODUCT:
+    stage: build&deploy_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - if [ ! -d "$PRODUCT" ]; then sudo mkdir -p "$PRODUCT"; fi
+        - cd $PRODUCT
+        - if pm2 describe $PM2_NAME > /dev/null 2>&1; then pm2 stop $PM2_NAME; fi
+        - if [ -d "$PRODUCT" ]; then find "$PRODUCT" -mindepth 1 -path "$PRODUCT/node_modules" -prune -o -name ".env" -prune -o -exec rm -rf {} +; fi
+        - if [ -d "$CLONE_TMP" ]; then rm -rf "$CLONE_TMP"; fi
+        - if [ -d $PRODUCT/node_modules ]; then cd /home/gitlab-runner/ && git clone --branch flappyshiba-webhook $REPOSITORY_URL && cd $CLONE_TMP && mv * $PRODUCT && rm -rf $CLONE_TMP; else git clone --branch flappyshiba-webhook $REPOSITORY_URL $PRODUCT; fi
+        - cd $PRODUCT
+        - npm install
+        - sudo chown -R flappy. $PRODUCT
+        - su flappy -c "cd $PRODUCT; pm2 restart app.js --name='live-webhook'"
+    tags:
+        - flappy-live
+    only:
+        - flappyshiba-webhook
