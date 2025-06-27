@@ -1,0 +1,65 @@
+variables:
+    API_URL_DEV: "https://git.myg.vn/api/v4/projects/227/repository/archive?path=build/web-mobile&sha=stage"
+    API_URL_PRODUCT: "https://git.myg.vn/api/v4/projects/227/repository/archive?path=build/web-mobile&sha=product"
+    STAGE: "/home/flappy/dev-portal.bemegame.info/public"
+    PRODUCT: "/home/flappy/proxy-data/live-portal.bemegame.info"
+
+stages:
+    - build_deploy_STAGE
+    - build_deploy_PRODUCT
+
+build_deploy_STAGE:
+    stage: build_deploy_STAGE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_URL_DEV)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Folder 'build/web-mobile' không tồn tại trên GitLab. Dừng triển khai."
+                exit 0
+            fi
+
+            if [ ! -d "$STAGE" ]; then mkdir -p "$STAGE"; fi
+            cd $STAGE && rm -rf *
+            curl --output build.tar.xz --header "PRIVATE-TOKEN: $TOKEN" $API_URL_DEV
+            tar -xf build.tar.xz -C .
+            
+            mv $STAGE/flappyshiba-*/build/web-mobile $STAGE
+            find "$STAGE" -mindepth 1 -path "$STAGE/web-mobile" -prune -o -exec rm -rf {} +
+    tags:
+        - flappy
+    only:
+        refs:
+            - stage
+            #- /^feature\/.*/    # Regex cho các nhánh bắt đầu bằng "feature/"
+        changes:
+            - build/web-mobile/**/*   # Bao gồm tất cả các file trong folder
+
+build_deploy_PRODUCT:
+    stage: build_deploy_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_URL_PRODUCT)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Folder 'build/web-mobile' không tồn tại trên GitLab. Dừng triển khai."
+                exit 0
+            fi
+
+            if [ ! -d "$PRODUCT" ]; then mkdir -p "$PRODUCT"; fi
+            cd $PRODUCT && rm -rf *
+            curl --output build.tar.xz --header "PRIVATE-TOKEN: $TOKEN" $API_URL_PRODUCT
+            tar -xf build.tar.xz -C .
+            
+            mv $PRODUCT/flappyshiba-*/build/web-mobile $PRODUCT
+            find "$PRODUCT" -mindepth 1 -path "$PRODUCT/web-mobile" -prune -o -exec rm -rf {} +
+            sudo chown -R flappy. $PRODUCT
+    tags:
+        - flappy-live
+    only:
+        refs:
+            - product
+        changes:
+            - build/web-mobile/**/*   # Bao gồm tất cả các file trong folder
