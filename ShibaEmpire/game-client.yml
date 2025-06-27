@@ -1,0 +1,57 @@
+variables:
+    API_REPOSITORY_URL_STAGE: "https://git.myg.vn/api/v4/projects/217/repository/archive?path=build/web-mobile&sha=stage"
+    API_REPOSITORY_URL_PRODUCT: "https://git.myg.vn/api/v4/projects/217/repository/archive?path=build/web-mobile&sha=product"
+    SOURCE_MAIN_STAGE: "/home/shiba/dev-game,website.shibaempire.co/public/dev-game.shibaempire.co"
+    SOURCE_MAIN_PRODUCT: "/home/ec2-user/data/live-game.shibaempire.co"
+
+stages:
+    - build_deploy_STAGE
+    - build_deploy_PRODUCT
+
+build_deploy_STAGE:
+    stage: build_deploy_STAGE
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_URL_STAGE)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Folder 'build/web-mobile' không tồn tại trên GitLab. Dừng triển khai."
+                exit 0
+            fi
+
+            if [ ! -d "$SOURCE_MAIN_STAGE" ]; then mkdir -p "$SOURCE_MAIN_STAGE"; fi
+            cd $SOURCE_MAIN_STAGE && rm -rf *
+            curl --output build.tar.xz --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_URL_STAGE
+            tar -xf build.tar.xz -C .
+
+            mv $SOURCE_MAIN_STAGE/shibatap-*/build/web-mobile $SOURCE_MAIN_STAGE
+            find "$SOURCE_MAIN_STAGE" -mindepth 1 -path "$SOURCE_MAIN_STAGE/web-mobile" -prune -o -exec rm -rf {} +
+    tags:
+        - dev-shiba
+    only:
+        - stage
+
+build_deploy_PRODUCT:
+    stage: build_deploy_PRODUCT
+    variables:
+        GIT_STRATEGY: none
+    script:
+        - |
+            STATUS_CODE=$(curl -o /dev/null -s -w "%{http_code}" --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_URL_PRODUCT)
+            if [ "$STATUS_CODE" -ne 200 ]; then
+                echo "Folder 'build/web-mobile' không tồn tại trên GitLab. Dừng triển khai."
+                exit 0
+            fi
+
+            if [ ! -d "$SOURCE_MAIN_PRODUCT" ]; then mkdir -p "$SOURCE_MAIN_PRODUCT"; fi
+            cd $SOURCE_MAIN_PRODUCT && rm -rf *
+            curl --output build.tar.xz --header "PRIVATE-TOKEN: $TOKEN" $API_REPOSITORY_URL_PRODUCT
+            tar -xf build.tar.xz -C .
+
+            mv $SOURCE_MAIN_PRODUCT/shibatap-*/build/web-mobile $SOURCE_MAIN_PRODUCT
+            find "$SOURCE_MAIN_PRODUCT" -mindepth 1 -path "$SOURCE_MAIN_PRODUCT/web-mobile" -prune -o -exec rm -rf {} +
+    tags:
+        - shiba-live
+    only:
+        - product
